@@ -1,15 +1,21 @@
 import React, { createContext, useContext, useEffect, useState, ReactNode } from 'react';
-import { supabase, testSupabaseConnection, handleSupabaseError, OperationType } from '../supabase';
+import { supabase } from '../supabase';
 import { UserProfile, UserRole } from '../types';
 import { User } from '@supabase/supabase-js';
+import {
+  getUserByUid,
+  saveUser,
+  getUserByEmail,
+  createDefaultProfile,
+  setCurrentUserId,
+  getCurrentUserId,
+} from '../services/localStorage';
 
 interface AuthContextType {
   user: User | null;
   profile: UserProfile | null;
   loading: boolean;
   isAdmin: boolean;
-  connectionStatus: 'connected' | 'checking' | 'error';
-  connectionError: string | null;
   signInWithEmail: (email: string, pass: string) => Promise<void>;
   signUpWithEmail: (
     email: string,
@@ -30,21 +36,6 @@ export const AuthProvider: React.FC<{ children: ReactNode }> = ({ children }) =>
   const [user, setUser] = useState<User | null>(null);
   const [profile, setProfile] = useState<UserProfile | null>(null);
   const [loading, setLoading] = useState(true);
-  const [connectionStatus, setConnectionStatus] = useState<'connected' | 'checking' | 'error'>('checking');
-  const [connectionError, setConnectionError] = useState<string | null>(null);
-
-  // Check connection on boot
-  useEffect(() => {
-    testSupabaseConnection().then((res) => {
-      if (res.success) {
-        setConnectionStatus('connected');
-        setConnectionError(null);
-      } else {
-        setConnectionStatus('error');
-        setConnectionError(res.error || 'Could not reach Supabase database.');
-      }
-    });
-  }, []);
 
   // Listen to Auth State
   useEffect(() => {
@@ -53,11 +44,13 @@ export const AuthProvider: React.FC<{ children: ReactNode }> = ({ children }) =>
 
       if (!session?.user) {
         setProfile(null);
+        setCurrentUserId(null);
         setLoading(false);
         return;
       }
 
-      // Fetch user profile
+      setCurrentUserId(session.user.id);
+      // Fetch user profile from localStorage
       await fetchProfile(session.user.id, session.user.email || '');
       setLoading(false);
     });
@@ -69,60 +62,27 @@ export const AuthProvider: React.FC<{ children: ReactNode }> = ({ children }) =>
 
   const fetchProfile = async (userId: string, email: string) => {
     try {
-      const { data, error } = await supabase
-        .from('users')
-        .select('*')
-        .eq('uid', userId)
-        .single();
+      let userProfile = getUserByUid(userId);
 
-      if (error) {
-        if (error.code === 'PGRST116') {
-          // Profile doesn't exist - create it
-          await createInitialProfile(userId, email);
-        } else {
-          throw error;
-        }
-      } else if (data) {
-        setProfile(data as UserProfile);
+      if (!userProfile) {
+        // Profile doesn't exist - create it
+        userProfile = createInitialProfile(userId, email);
       }
+
+      setProfile(userProfile);
     } catch (err) {
-      handleSupabaseError(err, OperationType.GET, `users/${userId}`);
+      console.error('Error fetching profile:', err);
     }
   };
 
-  const createInitialProfile = async (userId: string, email: string) => {
+  const createInitialProfile = (userId: string, email: string): UserProfile => {
     const isSystemAdmin = email.toLowerCase() === ADMIN_EMAIL.toLowerCase();
     const defaultRole: UserRole = isSystemAdmin ? 'admin' : 'donor';
+    const organizationName = isSystemAdmin ? 'Administrator' : 'Surplus Food Donor';
 
-    const newProfile: Partial<UserProfile> = {
-      uid: userId,
-      email,
-      displayName: 'Member',
-      role: defaultRole,
-      organizationName: isSystemAdmin ? 'Administrator' : 'Surplus Food Donor',
-      phone: '',
-      address: 'City Center',
-      latitude: 12.9352,
-      longitude: 77.6245,
-      isVerified: isSystemAdmin,
-      ngoRegNumber: '',
-      ngoCapacityMeals: 100,
-      ngoDietaryTypes: ['veg', 'non_veg'],
-      donorType: 'restaurant',
-    };
-
-    try {
-      const { data, error } = await supabase
-        .from('users')
-        .insert(newProfile)
-        .select()
-        .single();
-
-      if (error) throw error;
-      if (data) setProfile(data as UserProfile);
-    } catch (err) {
-      handleSupabaseError(err, OperationType.CREATE, 'users');
-    }
+    const newProfile = createDefaultProfile(userId, email, defaultRole, organizationName);
+    saveUser(newProfile);
+    return newProfile;
   };
 
   const signInWithEmail = async (email: string, pass: string) => {
@@ -156,52 +116,48 @@ export const AuthProvider: React.FC<{ children: ReactNode }> = ({ children }) =>
       const uid = authData.user.id;
       const isSystemAdmin = email.toLowerCase() === ADMIN_EMAIL.toLowerCase();
 
-      const newProfile: Partial<UserProfile> = {
+      const newProfile = createDefaultProfile(
         uid,
         email,
+        isSystemAdmin ? 'admin' : (profileData.role || 'donor'),
+        profileData.organizationName || 'Organization'
+      );
+
+      // Override with provided profile data
+      Object.assign(newProfile, {
         displayName: profileData.displayName || 'Member',
-        role: isSystemAdmin ? 'admin' : profileData.role || 'donor',
-        organizationName: profileData.organizationName || 'Organization',
         phone: profileData.phone || '',
         address: profileData.address || '',
         latitude: profileData.latitude,
         longitude: profileData.longitude,
-        isVerified: isSystemAdmin,
         ngoRegNumber: profileData.ngoRegNumber || '',
         ngoCapacityMeals: profileData.ngoCapacityMeals || 100,
         ngoDietaryTypes: profileData.ngoDietaryTypes || ['veg', 'non_veg'],
         donorType: profileData.donorType || 'restaurant',
-      };
+      });
 
-      const { error: profileError } = await supabase
-        .from('users')
-        .insert(newProfile);
-
-      if (profileError) throw profileError;
+      saveUser(newProfile);
     } catch (err) {
-      handleSupabaseError(err, OperationType.CREATE, 'users');
+      console.error('Sign up error:', err);
+      throw err;
     }
   };
 
   const updateProfileData = async (data: Partial<UserProfile>) => {
     if (!user) throw new Error('Not authenticated');
 
-    const updatePayload = {
-      ...data,
-      updated_at: new Date().toISOString(),
-    };
-
     try {
-      const { error } = await supabase
-        .from('users')
-        .update(updatePayload)
-        .eq('uid', user.id);
+      const updatedProfile = {
+        ...profile,
+        ...data,
+        updatedAt: new Date().toISOString(),
+      } as UserProfile;
 
-      if (error) throw error;
-
-      setProfile((prev) => (prev ? { ...prev, ...data } : null));
+      saveUser(updatedProfile);
+      setProfile(updatedProfile);
     } catch (err) {
-      handleSupabaseError(err, OperationType.UPDATE, `users/${user.id}`);
+      console.error('Update profile error:', err);
+      throw err;
     }
   };
 
@@ -232,8 +188,6 @@ export const AuthProvider: React.FC<{ children: ReactNode }> = ({ children }) =>
         profile,
         loading,
         isAdmin,
-        connectionStatus,
-        connectionError,
         signInWithEmail,
         signUpWithEmail,
         updateProfileData,

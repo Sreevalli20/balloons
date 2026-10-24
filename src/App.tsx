@@ -6,7 +6,6 @@
 import React, { useState } from 'react';
 import { AuthProvider, useAuth } from './context/AuthContext';
 import { Navbar } from './components/Navbar';
-import { ConnectionBanner } from './components/ConnectionBanner';
 import { AuthModal } from './components/AuthModal';
 import { DonorDashboard } from './components/donor/DonorDashboard';
 import { NgoDashboard } from './components/ngo/NgoDashboard';
@@ -35,7 +34,6 @@ const MainApp: React.FC = () => {
 
   return (
     <div className="min-h-screen bg-emerald-50/20 text-gray-900 flex flex-col font-sans selection:bg-emerald-200 selection:text-emerald-900">
-      <ConnectionBanner />
       <Navbar
         activeTab={activeTab}
         setActiveTab={setActiveTab}

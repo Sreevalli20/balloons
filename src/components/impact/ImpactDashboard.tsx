@@ -1,6 +1,6 @@
 import React, { useState, useEffect } from 'react';
-import { supabase, handleSupabaseError, OperationType } from '../../supabase';
 import { FoodDonation } from '../../types';
+import { getDonations } from '../../services/localStorage';
 import {
   Utensils,
   Leaf,
@@ -25,53 +25,29 @@ export const ImpactDashboard: React.FC<ImpactDashboardProps> = ({ onPostFood }) 
   const [loading, setLoading] = useState(true);
 
   useEffect(() => {
-    const fetchAllDonations = async () => {
-      const { data, error } = await supabase
-        .from('donations')
-        .select('*')
-        .order('created_at', { ascending: false });
-
-      if (error) {
-        handleSupabaseError(error, OperationType.LIST, 'donations');
-        setLoading(false);
-        return;
-      }
-
-      if (data) {
-        setAllDonations(data as FoodDonation[]);
-      }
+    const loadDonations = () => {
+      setAllDonations(getDonations());
       setLoading(false);
     };
 
-    fetchAllDonations();
+    loadDonations();
 
-    const channel = supabase
-      .channel('all-donations')
-      .on(
-        'postgres_changes',
-        {
-          event: '*',
-          schema: 'public',
-          table: 'donations',
-        },
-        (payload) => {
-          if (payload.eventType === 'INSERT') {
-            setAllDonations((prev) => [payload.new as FoodDonation, ...prev]);
-          } else if (payload.eventType === 'UPDATE') {
-            setAllDonations((prev) =>
-              prev.map((d) =>
-                d.id === payload.new.id ? (payload.new as FoodDonation) : d
-              )
-            );
-          } else if (payload.eventType === 'DELETE') {
-            setAllDonations((prev) => prev.filter((d) => d.id !== payload.old.id));
-          }
-        }
-      )
-      .subscribe();
+    const handleStorageChange = (e: StorageEvent) => {
+      if (e.key === 'annasetu_donations') {
+        loadDonations();
+      }
+    };
+
+    const handleCustomEvent = () => {
+      loadDonations();
+    };
+
+    window.addEventListener('storage', handleStorageChange);
+    window.addEventListener('annasetu-donations-updated', handleCustomEvent);
 
     return () => {
-      supabase.removeChannel(channel);
+      window.removeEventListener('storage', handleStorageChange);
+      window.removeEventListener('annasetu-donations-updated', handleCustomEvent);
     };
   }, []);
 

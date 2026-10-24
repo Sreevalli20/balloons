@@ -1,8 +1,13 @@
 import React, { useState, useEffect } from 'react';
 import { useAuth } from '../../context/AuthContext';
-import { supabase, handleSupabaseError, OperationType } from '../../supabase';
 import { UserProfile, FoodDonation } from '../../types';
 import { DonationDetailModal } from '../common/DonationDetailModal';
+import {
+  getNgos,
+  getDonors,
+  getDonations,
+  toggleNgoVerification,
+} from '../../services/localStorage';
 import {
   ShieldCheck,
   Building,
@@ -37,91 +42,40 @@ export const AdminPanel: React.FC<AdminPanelProps> = ({ openAuthModal }) => {
   const [actionSuccess, setActionSuccess] = useState<string | null>(null);
   const [actionError, setActionError] = useState<string | null>(null);
 
-  // Real-time listener for users
+  // Load users and donations from localStorage
   useEffect(() => {
     if (!user) {
       setLoading(false);
       return;
     }
 
-    const fetchUsers = async () => {
-      const { data, error } = await supabase
-        .from('users')
-        .select('*');
-
-      if (error) {
-        handleSupabaseError(error, OperationType.LIST, 'users');
-        setLoading(false);
-        return;
-      }
-
-      if (data) {
-        const ngoList: UserProfile[] = [];
-        const donorList: UserProfile[] = [];
-        data.forEach((u) => {
-          const userProfile = u as UserProfile;
-          if (userProfile.role === 'ngo') ngoList.push(userProfile);
-          else if (userProfile.role === 'donor') donorList.push(userProfile);
-        });
-        setNgos(ngoList);
-        setDonors(donorList);
-      }
-    };
-
-    const fetchDonations = async () => {
-      const { data, error } = await supabase
-        .from('donations')
-        .select('*')
-        .order('created_at', { ascending: false });
-
-      if (error) {
-        handleSupabaseError(error, OperationType.LIST, 'donations');
-        setLoading(false);
-        return;
-      }
-
-      if (data) {
-        setAllDonations(data as FoodDonation[]);
-      }
+    const loadData = () => {
+      setNgos(getNgos());
+      setDonors(getDonors());
+      setAllDonations(getDonations());
       setLoading(false);
     };
 
-    fetchUsers();
-    fetchDonations();
+    loadData();
 
-    const usersChannel = supabase
-      .channel('users-channel')
-      .on(
-        'postgres_changes',
-        {
-          event: '*',
-          schema: 'public',
-          table: 'users',
-        },
-        () => {
-          fetchUsers();
-        }
-      )
-      .subscribe();
+    const handleStorageChange = (e: StorageEvent) => {
+      if (e.key === 'annasetu_users' || e.key === 'annasetu_donations') {
+        loadData();
+      }
+    };
 
-    const donationsChannel = supabase
-      .channel('donations-channel')
-      .on(
-        'postgres_changes',
-        {
-          event: '*',
-          schema: 'public',
-          table: 'donations',
-        },
-        () => {
-          fetchDonations();
-        }
-      )
-      .subscribe();
+    const handleCustomEvent = () => {
+      loadData();
+    };
+
+    window.addEventListener('storage', handleStorageChange);
+    window.addEventListener('annasetu-users-updated', handleCustomEvent);
+    window.addEventListener('annasetu-donations-updated', handleCustomEvent);
 
     return () => {
-      supabase.removeChannel(usersChannel);
-      supabase.removeChannel(donationsChannel);
+      window.removeEventListener('storage', handleStorageChange);
+      window.removeEventListener('annasetu-users-updated', handleCustomEvent);
+      window.removeEventListener('annasetu-donations-updated', handleCustomEvent);
     };
   }, [user]);
 
@@ -130,27 +84,15 @@ export const AdminPanel: React.FC<AdminPanelProps> = ({ openAuthModal }) => {
     setActionError(null);
     setActionSuccess(null);
 
-    const nowIso = new Date().toISOString();
     try {
-      const { error } = await supabase
-        .from('users')
-        .update({
-          is_verified: makeVerified,
-          updated_at: nowIso,
-          verification_notes: makeVerified
-            ? `Verified by platform administrator on ${new Date().toLocaleDateString()}`
-            : 'Verification revoked by platform administrator',
-        })
-        .eq('uid', ngo.uid);
-
-      if (error) throw error;
-
+      toggleNgoVerification(ngo.uid, makeVerified);
+      window.dispatchEvent(new CustomEvent('annasetu-users-updated'));
       setActionSuccess(
         `Successfully ${makeVerified ? 'verified' : 'revoked verification for'} ${ngo.organization_name}.`
       );
     } catch (err: unknown) {
       console.error(err);
-      handleSupabaseError(err, OperationType.UPDATE, `users/${ngo.uid}`);
+      setActionError('Failed to update verification status');
     } finally {
       setVerifyingId(null);
     }

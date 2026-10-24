@@ -1,11 +1,11 @@
 import React, { useState, useEffect } from 'react';
 import { useAuth } from '../../context/AuthContext';
-import { supabase, handleSupabaseError, OperationType } from '../../supabase';
 import { FoodDonation, DonationStatus } from '../../types';
 import { getExpiryStatus } from '../../utils/expiry';
 import { CreateDonationForm } from './CreateDonationForm';
 import { DonationFormModal } from './DonationFormModal';
 import { DonationDetailModal } from '../common/DonationDetailModal';
+import { getDonationsByDonorId } from '../../services/localStorage';
 import {
   Plus,
   Utensils,
@@ -39,7 +39,7 @@ export const DonorDashboard: React.FC<DonorDashboardProps> = ({ openAuthModal })
   const [selectedDonation, setSelectedDonation] = useState<FoodDonation | null>(null);
   const [successNotice, setSuccessNotice] = useState<string | null>(null);
 
-  // Supabase real-time listener for current donor's donations
+  // Load donations from localStorage
   useEffect(() => {
     if (!user) {
       setDonations([]);
@@ -49,57 +49,33 @@ export const DonorDashboard: React.FC<DonorDashboardProps> = ({ openAuthModal })
 
     setLoading(true);
 
-    // Initial fetch
-    const fetchDonations = async () => {
-      const { data, error } = await supabase
-        .from('donations')
-        .select('*')
-        .eq('donor_id', user.id)
-        .order('created_at', { ascending: false });
-
-      if (error) {
-        handleSupabaseError(error, OperationType.LIST, 'donations');
-        setLoading(false);
-        return;
-      }
-
-      if (data) {
-        setDonations(data as FoodDonation[]);
-      }
+    // Load donations from localStorage
+    const loadDonations = () => {
+      const donorDonations = getDonationsByDonorId(user.id);
+      setDonations(donorDonations);
       setLoading(false);
     };
 
-    fetchDonations();
+    loadDonations();
 
-    // Set up real-time subscription
-    const channel = supabase
-      .channel('donations-channel')
-      .on(
-        'postgres_changes',
-        {
-          event: '*',
-          schema: 'public',
-          table: 'donations',
-          filter: `donor_id=eq.${user.id}`,
-        },
-        (payload) => {
-          if (payload.eventType === 'INSERT') {
-            setDonations((prev) => [payload.new as FoodDonation, ...prev]);
-          } else if (payload.eventType === 'UPDATE') {
-            setDonations((prev) =>
-              prev.map((d) =>
-                d.id === payload.new.id ? (payload.new as FoodDonation) : d
-              )
-            );
-          } else if (payload.eventType === 'DELETE') {
-            setDonations((prev) => prev.filter((d) => d.id !== payload.old.id));
-          }
-        }
-      )
-      .subscribe();
+    // Listen for custom storage events for real-time updates
+    const handleStorageChange = (e: StorageEvent) => {
+      if (e.key === 'annasetu_donations') {
+        loadDonations();
+      }
+    };
+
+    // Also listen for custom events from within the same tab
+    const handleCustomEvent = () => {
+      loadDonations();
+    };
+
+    window.addEventListener('storage', handleStorageChange);
+    window.addEventListener('annasetu-donations-updated', handleCustomEvent);
 
     return () => {
-      supabase.removeChannel(channel);
+      window.removeEventListener('storage', handleStorageChange);
+      window.removeEventListener('annasetu-donations-updated', handleCustomEvent);
     };
   }, [user]);
 

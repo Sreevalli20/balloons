@@ -1,11 +1,17 @@
 import React, { useState, useEffect } from 'react';
 import { useAuth } from '../../context/AuthContext';
-import { supabase, handleSupabaseError, OperationType } from '../../supabase';
 import { FoodDonation, FoodCategory, DonationStatus } from '../../types';
 import { calculateMatchScore } from '../../utils/matching';
 import { getExpiryStatus } from '../../utils/expiry';
 import { formatDistance, calculateDistanceKm } from '../../utils/geo';
 import { DonationDetailModal } from '../common/DonationDetailModal';
+import {
+  getAvailableDonations,
+  getDonationsByAssignedNgoId,
+  updateDonation,
+  getDonationById,
+  updateUser,
+} from '../../services/localStorage';
 import {
   HeartHandshake,
   Sparkles,
@@ -63,132 +69,75 @@ export const NgoDashboard: React.FC<NgoDashboardProps> = ({ openAuthModal }) => 
     setVerifyingSelf(true);
     setActionError(null);
     try {
-      const { error } = await supabase
-        .from('users')
-        .update({
-          is_verified: true,
-          updated_at: new Date().toISOString(),
-        })
-        .eq('uid', user.id);
-
-      if (error) throw error;
-
+      updateUser(user.id, { isVerified: true });
       setActionSuccess('Agency status verified! You now have full clearance to accept surplus food donations.');
     } catch (err: unknown) {
       console.error(err);
-      handleSupabaseError(err, OperationType.UPDATE, `users/${user.id}`);
+      setActionError('Failed to verify NGO account');
     } finally {
       setVerifyingSelf(false);
     }
   };
 
-  // Real-time listener for Available donations
+  // Load available donations from localStorage
   useEffect(() => {
-    const fetchAvailableDonations = async () => {
-      const { data, error } = await supabase
-        .from('donations')
-        .select('*')
-        .eq('status', 'available');
-
-      if (error) {
-        handleSupabaseError(error, OperationType.LIST, 'donations');
-        setLoading(false);
-        return;
-      }
-
-      if (data) {
-        setAvailableDonations(data as FoodDonation[]);
-      }
+    const loadAvailableDonations = () => {
+      const available = getAvailableDonations();
+      setAvailableDonations(available);
       setLoading(false);
     };
 
-    fetchAvailableDonations();
+    loadAvailableDonations();
 
-    const channel = supabase
-      .channel('available-donations')
-      .on(
-        'postgres_changes',
-        {
-          event: '*',
-          schema: 'public',
-          table: 'donations',
-          filter: 'status=eq.available',
-        },
-        (payload) => {
-          if (payload.eventType === 'INSERT') {
-            setAvailableDonations((prev) => [payload.new as FoodDonation, ...prev]);
-          } else if (payload.eventType === 'UPDATE') {
-            setAvailableDonations((prev) =>
-              prev.map((d) =>
-                d.id === payload.new.id ? (payload.new as FoodDonation) : d
-              ).filter((d) => d.status === 'available')
-            );
-          } else if (payload.eventType === 'DELETE') {
-            setAvailableDonations((prev) => prev.filter((d) => d.id !== payload.old.id));
-          }
-        }
-      )
-      .subscribe();
+    const handleStorageChange = (e: StorageEvent) => {
+      if (e.key === 'annasetu_donations') {
+        loadAvailableDonations();
+      }
+    };
+
+    const handleCustomEvent = () => {
+      loadAvailableDonations();
+    };
+
+    window.addEventListener('storage', handleStorageChange);
+    window.addEventListener('annasetu-donations-updated', handleCustomEvent);
 
     return () => {
-      supabase.removeChannel(channel);
+      window.removeEventListener('storage', handleStorageChange);
+      window.removeEventListener('annasetu-donations-updated', handleCustomEvent);
     };
   }, []);
 
-  // Real-time listener for Pickups assigned to this NGO
+  // Load pickups assigned to this NGO from localStorage
   useEffect(() => {
     if (!user) {
       setMyPickups([]);
       return;
     }
 
-    const fetchMyPickups = async () => {
-      const { data, error } = await supabase
-        .from('donations')
-        .select('*')
-        .eq('assigned_ngo_id', user.id)
-        .order('updated_at', { ascending: false });
+    const loadMyPickups = () => {
+      const pickups = getDonationsByAssignedNgoId(user.id);
+      setMyPickups(pickups);
+    };
 
-      if (error) {
-        handleSupabaseError(error, OperationType.LIST, 'donations');
-        return;
-      }
+    loadMyPickups();
 
-      if (data) {
-        setMyPickups(data as FoodDonation[]);
+    const handleStorageChange = (e: StorageEvent) => {
+      if (e.key === 'annasetu_donations') {
+        loadMyPickups();
       }
     };
 
-    fetchMyPickups();
+    const handleCustomEvent = () => {
+      loadMyPickups();
+    };
 
-    const channel = supabase
-      .channel('my-pickups')
-      .on(
-        'postgres_changes',
-        {
-          event: '*',
-          schema: 'public',
-          table: 'donations',
-          filter: `assigned_ngo_id=eq.${user.id}`,
-        },
-        (payload) => {
-          if (payload.eventType === 'INSERT') {
-            setMyPickups((prev) => [payload.new as FoodDonation, ...prev]);
-          } else if (payload.eventType === 'UPDATE') {
-            setMyPickups((prev) =>
-              prev.map((d) =>
-                d.id === payload.new.id ? (payload.new as FoodDonation) : d
-              )
-            );
-          } else if (payload.eventType === 'DELETE') {
-            setMyPickups((prev) => prev.filter((d) => d.id !== payload.old.id));
-          }
-        }
-      )
-      .subscribe();
+    window.addEventListener('storage', handleStorageChange);
+    window.addEventListener('annasetu-donations-updated', handleCustomEvent);
 
     return () => {
-      supabase.removeChannel(channel);
+      window.removeEventListener('storage', handleStorageChange);
+      window.removeEventListener('annasetu-donations-updated', handleCustomEvent);
     };
   }, [user]);
 
@@ -202,7 +151,7 @@ export const NgoDashboard: React.FC<NgoDashboardProps> = ({ openAuthModal }) => 
     }
   }, [availableDonations, myPickups, selectedDonation]);
 
-  // Handle Accept Donation with atomic function to prevent race conditions
+  // Handle Accept Donation
   const handleAcceptDonation = async (donation: FoodDonation) => {
     if (!user || !profile) {
       openAuthModal();
@@ -227,31 +176,45 @@ export const NgoDashboard: React.FC<NgoDashboardProps> = ({ openAuthModal }) => 
     setActionSuccess(null);
 
     try {
-      // Call the Supabase RPC function for atomic acceptance
-      const { data, error } = await supabase.rpc('accept_donation', {
-        donation_id: donation.id,
-        ngo_uid: user.id,
-        ngo_name: profile.organizationName || profile.displayName || 'Relief NGO',
-        ngo_phone: profile.phone || '',
-      });
-
-      if (error) throw error;
-
-      if (data && data.success === false) {
-        setActionError(data.error || 'Failed to accept donation');
+      // Check if donation is still available
+      const currentDonation = getDonationById(donation.id);
+      if (!currentDonation || currentDonation.status !== 'available') {
+        setActionError('This donation is no longer available.');
         return;
       }
+
+      // Update donation with NGO assignment
+      const nowIso = new Date().toISOString();
+      updateDonation(donation.id, {
+        status: 'accepted',
+        assignedNgoId: user.id,
+        assigned_ngo_id: user.id,
+        assignedNgoName: profile.organizationName || profile.displayName || 'Relief NGO',
+        assigned_ngo_name: profile.organizationName || profile.displayName || 'Relief NGO',
+        assignedNgoPhone: profile.phone || '',
+        assigned_ngo_phone: profile.phone || '',
+        acceptedAt: nowIso,
+        accepted_at: nowIso,
+        statusHistory: [
+          ...(donation.statusHistory || []),
+          {
+            status: 'accepted',
+            timestamp: nowIso,
+            updatedBy: user.id,
+            updatedByName: profile.organizationName || 'Relief NGO',
+            notes: 'Donation accepted by NGO for pickup',
+          },
+        ],
+      });
+
+      // Dispatch custom event for real-time updates
+      window.dispatchEvent(new CustomEvent('annasetu-donations-updated'));
 
       setActionSuccess(`Successfully accepted ${donation.foodName}! Pickup assigned to your roster.`);
       setActiveTab('my_pickups');
     } catch (err: unknown) {
       console.error(err);
-      const msg = err instanceof Error ? err.message : String(err);
-      if (msg.includes('no longer available')) {
-        setActionError(msg);
-      } else {
-        handleSupabaseError(err, OperationType.UPDATE, `donations/${donation.id}`);
-      }
+      setActionError('Failed to accept donation');
     } finally {
       setAcceptingId(null);
     }
@@ -284,6 +247,7 @@ export const NgoDashboard: React.FC<NgoDashboardProps> = ({ openAuthModal }) => 
       ];
     } else if (newStatus === 'collected') {
       updateData.collectedAt = nowIso;
+      updateData.collected_at = nowIso;
       updateData.statusHistory = [
         ...(donation.statusHistory || []),
         {
@@ -297,17 +261,12 @@ export const NgoDashboard: React.FC<NgoDashboardProps> = ({ openAuthModal }) => 
     }
 
     try {
-      const { error } = await supabase
-        .from('donations')
-        .update(updateData)
-        .eq('id', donation.id);
-
-      if (error) throw error;
-
+      updateDonation(donation.id, updateData);
+      window.dispatchEvent(new CustomEvent('annasetu-donations-updated'));
       setActionSuccess(`Status updated to: ${newStatus.replace('_', ' ')}`);
     } catch (err: unknown) {
       console.error(err);
-      handleSupabaseError(err, OperationType.UPDATE, `donations/${donation.id}`);
+      setActionError('Failed to update status');
     }
   };
 
@@ -320,28 +279,27 @@ export const NgoDashboard: React.FC<NgoDashboardProps> = ({ openAuthModal }) => 
     const nowIso = new Date().toISOString();
 
     try {
-      const { error } = await supabase
-        .from('donations')
-        .update({
-          status: 'delivered',
-          deliveredAt: nowIso,
-          actualBeneficiariesServed: Number(beneficiariesServed),
-          statusHistory: [
-            ...(deliveryDonation.statusHistory || []),
-            {
-              status: 'delivered',
-              timestamp: nowIso,
-              updatedBy: user.id,
-              updatedByName: profile?.organizationName || 'NGO Team',
-              notes:
-                deliveryNotes ||
-                `Food served to ${beneficiariesServed} beneficiaries at community shelter.`,
-            },
-          ],
-        })
-        .eq('id', deliveryDonation.id);
+      updateDonation(deliveryDonation.id, {
+        status: 'delivered',
+        deliveredAt: nowIso,
+        delivered_at: nowIso,
+        actualBeneficiariesServed: Number(beneficiariesServed),
+        actual_beneficiaries_served: Number(beneficiariesServed),
+        statusHistory: [
+          ...(deliveryDonation.statusHistory || []),
+          {
+            status: 'delivered',
+            timestamp: nowIso,
+            updatedBy: user.id,
+            updatedByName: profile?.organizationName || 'NGO Team',
+            notes:
+              deliveryNotes ||
+              `Food served to ${beneficiariesServed} beneficiaries at community shelter.`,
+          },
+        ],
+      });
 
-      if (error) throw error;
+      window.dispatchEvent(new CustomEvent('annasetu-donations-updated'));
 
       setActionSuccess(
         `Rescue completed! Verified impact: ${beneficiariesServed} meals provided to beneficiaries.`
@@ -349,7 +307,7 @@ export const NgoDashboard: React.FC<NgoDashboardProps> = ({ openAuthModal }) => 
       setDeliveryDonation(null);
     } catch (err: unknown) {
       console.error(err);
-      handleSupabaseError(err, OperationType.UPDATE, `donations/${deliveryDonation.id}`);
+      setActionError('Failed to confirm delivery');
     } finally {
       setSubmittingDelivery(false);
     }

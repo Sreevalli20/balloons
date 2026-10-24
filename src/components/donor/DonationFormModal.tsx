@@ -1,6 +1,5 @@
 import React, { useState, useEffect } from 'react';
 import { useAuth } from '../../context/AuthContext';
-import { supabase, handleSupabaseError, OperationType } from '../../supabase';
 import {
   FoodDonation,
   FoodCategory,
@@ -9,6 +8,7 @@ import {
   DonationStatus,
 } from '../../types';
 import { CITY_PRESETS, getCurrentBrowserLocation } from '../../utils/geo';
+import { updateDonation, createDonation } from '../../services/localStorage';
 import {
   X,
   Utensils,
@@ -175,24 +175,35 @@ export const DonationFormModal: React.FC<DonationFormModalProps> = ({
     try {
       if (donationToEdit) {
         // Update existing donation
-        const updatedRecord: Partial<FoodDonation> = {
+        updateDonation(donationToEdit.id, {
           food_name: foodName,
+          foodName,
           category,
           quantity: Number(quantity),
           unit,
           estimated_servings: Number(estimatedServings),
+          estimatedServings: Number(estimatedServings),
           dietary_info: dietaryInfo,
+          dietaryInfo,
           packaging_condition: packagingCondition,
+          packagingCondition,
           storage_instructions: storageInstructions,
+          storageInstructions,
           preparation_time: prepDate.toISOString(),
+          preparationTime: prepDate.toISOString(),
           expiry_deadline: expDate.toISOString(),
+          expiryDeadline: expDate.toISOString(),
           donor_address: pickupAddress,
+          donorAddress: pickupAddress,
           donor_latitude: Number(latitude),
+          donorLatitude: Number(latitude),
           donor_longitude: Number(longitude),
+          donorLongitude: Number(longitude),
           notes,
           updated_at: nowIso,
+          updatedAt: nowIso,
           status_history: [
-            ...(donationToEdit.status_history || []),
+            ...(donationToEdit.status_history || donationToEdit.statusHistory || []),
             {
               status: donationToEdit.status,
               timestamp: nowIso,
@@ -201,59 +212,34 @@ export const DonationFormModal: React.FC<DonationFormModalProps> = ({
               notes: 'Donation listing details updated by donor',
             },
           ],
-        };
-
-        const { error } = await supabase
-          .from('donations')
-          .update(updatedRecord)
-          .eq('id', donationToEdit.id);
-
-        if (error) throw error;
+        });
       } else {
         // Create new donation
-        const newDonation: Partial<FoodDonation> = {
-          donor_id: user.id,
-          donor_name: profile?.organization_name || profile?.display_name || 'Verified Donor',
-          donor_phone: profile?.phone || '',
-          donor_address: pickupAddress,
-          donor_latitude: Number(latitude),
-          donor_longitude: Number(longitude),
-          food_name: foodName,
+        createDonation(
+          user.id,
+          profile?.organization_name || profile?.display_name || 'Verified Donor',
+          profile?.phone || '',
+          pickupAddress,
+          Number(latitude),
+          Number(longitude),
+          foodName,
           category,
-          quantity: Number(quantity),
+          Number(quantity),
           unit,
-          estimated_servings: Number(estimatedServings),
-          dietary_info: dietaryInfo,
-          packaging_condition: packagingCondition,
-          storage_instructions: storageInstructions,
-          preparation_time: prepDate.toISOString(),
-          expiry_deadline: expDate.toISOString(),
-          status: 'available' as DonationStatus,
-          notes,
-          status_history: [
-            {
-              status: 'available',
-              timestamp: nowIso,
-              updatedBy: user.id,
-              updatedByName: profile?.display_name || profile?.organization_name || 'Donor',
-              notes: 'Surplus food listing published to live network',
-            },
-          ],
-          created_at: nowIso,
-          updated_at: nowIso,
-        };
-
-        const { error } = await supabase
-          .from('donations')
-          .insert(newDonation);
-
-        if (error) throw error;
+          Number(estimatedServings),
+          dietaryInfo,
+          packagingCondition,
+          storageInstructions,
+          prepDate.toISOString(),
+          expDate.toISOString(),
+          notes
+        );
       }
 
       onClose();
     } catch (err: unknown) {
       console.error('Error saving donation:', err);
-      handleSupabaseError(err, donationToEdit ? OperationType.UPDATE : OperationType.CREATE, 'donations');
+      setError('Failed to save donation. Please try again.');
     } finally {
       setSubmitting(false);
     }

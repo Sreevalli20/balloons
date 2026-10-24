@@ -3,7 +3,7 @@ import { useAuth } from '../../context/AuthContext';
 import { FoodDonation, DonationStatus } from '../../types';
 import { getExpiryStatus } from '../../utils/expiry';
 import { formatDistance, calculateDistanceKm } from '../../utils/geo';
-import { supabase, handleSupabaseError, OperationType } from '../../supabase';
+import { updateDonation } from '../../services/localStorage';
 import {
   X,
   Clock,
@@ -65,33 +65,31 @@ export const DonationDetailModal: React.FC<DonationDetailModalProps> = ({
 
     const nowIso = new Date().toISOString();
     try {
-      const { error } = await supabase
-        .from('donations')
-        .update({
-          status: 'cancelled',
-          cancelled_at: nowIso,
-          cancellation_reason: cancelReason || 'Cancelled by donor',
-          updated_at: nowIso,
-          status_history: [
-            ...(donation.status_history || []),
-            {
-              status: 'cancelled',
-              timestamp: nowIso,
-              updatedBy: user.id,
-              updatedByName: profile?.display_name || profile?.organization_name || 'Donor',
-              notes: cancelReason || 'Listing cancelled',
-            },
-          ],
-        })
-        .eq('id', donation.id);
-
-      if (error) throw error;
+      updateDonation(donation.id, {
+        status: 'cancelled',
+        cancelled_at: nowIso,
+        cancelledAt: nowIso,
+        cancellation_reason: cancelReason || 'Cancelled by donor',
+        cancellationReason: cancelReason || 'Cancelled by donor',
+        updated_at: nowIso,
+        updatedAt: nowIso,
+        status_history: [
+          ...(donation.status_history || []),
+          {
+            status: 'cancelled',
+            timestamp: nowIso,
+            updatedBy: user.id,
+            updatedByName: profile?.display_name || profile?.organization_name || 'Donor',
+            notes: cancelReason || 'Listing cancelled',
+          },
+        ],
+      });
 
       setShowCancelPrompt(false);
       onClose();
     } catch (err) {
       console.error(err);
-      handleSupabaseError(err, OperationType.UPDATE, `donations/${donation.id}`);
+      setError('Failed to cancel donation');
     } finally {
       setCancelling(false);
     }

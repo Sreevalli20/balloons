@@ -1,6 +1,5 @@
 import React, { useState, useEffect } from 'react';
 import { useAuth } from '../../context/AuthContext';
-import { supabase, handleSupabaseError, OperationType } from '../../supabase';
 import {
   FoodDonation,
   FoodCategory,
@@ -9,6 +8,7 @@ import {
   DonationStatus,
 } from '../../types';
 import { CITY_PRESETS, getCurrentBrowserLocation } from '../../utils/geo';
+import { createDonation } from '../../services/localStorage';
 import {
   Utensils,
   Clock,
@@ -167,50 +167,32 @@ export const CreateDonationForm: React.FC<CreateDonationFormProps> = ({
     const nowIso = now.toISOString();
 
     try {
-      const newDonation: Partial<FoodDonation> = {
-        donorId: user.id,
-        donorName: profile?.organizationName || profile?.displayName || 'Verified Donor',
-        donorPhone: profile?.phone || '',
-        donorAddress: pickupAddress.trim(),
-        donorLatitude: Number(latitude),
-        donorLongitude: Number(longitude),
-        foodName: foodName.trim(),
+      const newDonation = createDonation(
+        user.id,
+        profile?.organizationName || profile?.displayName || 'Verified Donor',
+        profile?.phone || '',
+        pickupAddress.trim(),
+        Number(latitude),
+        Number(longitude),
+        foodName.trim(),
         category,
-        quantity: Number(quantity),
+        Number(quantity),
         unit,
-        estimatedServings: Number(estimatedServings),
+        Number(estimatedServings),
         dietaryInfo,
         packagingCondition,
         storageInstructions,
-        preparationTime: prepDate.toISOString(),
-        expiryDeadline: expDate.toISOString(),
-        status: 'available' as DonationStatus,
-        notes: notes.trim(),
-        statusHistory: [
-          {
-            status: 'available',
-            timestamp: nowIso,
-            updatedBy: user.id,
-            updatedByName: profile?.organizationName || profile?.displayName || 'Donor',
-            notes: 'Surplus food listing published to live network',
-          },
-        ],
-      };
+        prepDate.toISOString(),
+        expDate.toISOString(),
+        notes.trim()
+      );
 
-      const { data, error } = await supabase
-        .from('donations')
-        .insert(newDonation)
-        .select()
-        .single();
-
-      if (error) throw error;
-
-      if (onSuccess && data) {
-        onSuccess(data as FoodDonation);
+      if (onSuccess) {
+        onSuccess(newDonation);
       }
     } catch (err: unknown) {
       console.error('Error creating donation:', err);
-      handleSupabaseError(err, OperationType.CREATE, 'donations');
+      setError('Failed to create donation. Please try again.');
     } finally {
       setSubmitting(false);
     }
