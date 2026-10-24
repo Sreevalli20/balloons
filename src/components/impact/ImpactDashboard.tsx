@@ -1,6 +1,6 @@
 import React, { useState, useEffect } from 'react';
 import { FoodDonation } from '../../types';
-import { getDonations } from '../../services/localStorage';
+import { getAllDonations } from '../../services/supabaseData';
 import {
   Utensils,
   Leaf,
@@ -25,30 +25,13 @@ export const ImpactDashboard: React.FC<ImpactDashboardProps> = ({ onPostFood }) 
   const [loading, setLoading] = useState(true);
 
   useEffect(() => {
-    const loadDonations = () => {
-      setAllDonations(getDonations());
+    const loadDonations = async () => {
+      const donations = await getAllDonations();
+      setAllDonations(donations);
       setLoading(false);
     };
 
     loadDonations();
-
-    const handleStorageChange = (e: StorageEvent) => {
-      if (e.key === 'annasetu_donations') {
-        loadDonations();
-      }
-    };
-
-    const handleCustomEvent = () => {
-      loadDonations();
-    };
-
-    window.addEventListener('storage', handleStorageChange);
-    window.addEventListener('annasetu-donations-updated', handleCustomEvent);
-
-    return () => {
-      window.removeEventListener('storage', handleStorageChange);
-      window.removeEventListener('annasetu-donations-updated', handleCustomEvent);
-    };
   }, []);
 
   // Filter ONLY genuinely delivered food records

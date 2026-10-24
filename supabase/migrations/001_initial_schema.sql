@@ -23,6 +23,9 @@ CREATE TABLE IF NOT EXISTS users (
   -- Donor-specific fields
   donor_type TEXT CHECK (donor_type IN ('restaurant', 'caterer', 'grocery', 'bakery', 'corporate', 'individual')),
 
+  -- Verification notes for NGOs
+  verification_notes TEXT,
+
   -- Timestamps
   created_at TIMESTAMP WITH TIME ZONE DEFAULT NOW(),
   updated_at TIMESTAMP WITH TIME ZONE DEFAULT NOW()

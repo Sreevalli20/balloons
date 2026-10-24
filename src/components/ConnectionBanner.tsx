@@ -14,7 +14,7 @@ export const ConnectionBanner: React.FC = () => {
       <div className="bg-emerald-50 border-b border-emerald-200 px-4 py-2 text-xs text-emerald-800 flex items-center justify-between">
         <div className="flex items-center gap-2">
           <RefreshCw className="w-3.5 h-3.5 animate-spin text-emerald-600" />
-          <span>Connecting to AnnaSetu Supabase database...</span>
+          <span>Connecting to AnnaSetu database...</span>
         </div>
       </div>
     );

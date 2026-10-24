@@ -3,7 +3,7 @@ import { useAuth } from '../../context/AuthContext';
 import { FoodDonation, DonationStatus } from '../../types';
 import { getExpiryStatus } from '../../utils/expiry';
 import { formatDistance, calculateDistanceKm } from '../../utils/geo';
-import { updateDonation } from '../../services/localStorage';
+import { updateDonation } from '../../services/supabaseData';
 import {
   X,
   Clock,

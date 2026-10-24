@@ -61,7 +61,7 @@ export const Navbar: React.FC<NavbarProps> = ({
             />
             <span className="text-emerald-200 text-[11px] hidden md:inline">
               {connectionStatus === 'connected'
-                ? 'Firestore Real-Time Live'
+                ? 'Supabase Real-Time Live'
                 : connectionStatus === 'checking'
                 ? 'Connecting...'
                 : 'Offline'}

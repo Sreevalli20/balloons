@@ -147,6 +147,7 @@ RETURNS JSONB AS $$
 DECLARE
   current_status TEXT;
   donation_expiry TIMESTAMP WITH TIME ZONE;
+  ngo_verified BOOLEAN;
 BEGIN
   -- Lock the row and get current state
   SELECT status, expiry_deadline INTO current_status, donation_expiry
@@ -166,6 +167,15 @@ BEGIN
   -- Check if donation has expired
   IF donation_expiry < NOW() THEN
     RETURN jsonb_build_object('success', false, 'error', 'Donation has expired');
+  END IF;
+
+  -- Check if NGO is verified
+  SELECT is_verified INTO ngo_verified
+  FROM users
+  WHERE uid = ngo_uid;
+
+  IF NOT COALESCE(ngo_verified, false) THEN
+    RETURN jsonb_build_object('success', false, 'error', 'NGO is not verified');
   END IF;
 
   -- Update the donation atomically

@@ -5,7 +5,7 @@ import { getExpiryStatus } from '../../utils/expiry';
 import { CreateDonationForm } from './CreateDonationForm';
 import { DonationFormModal } from './DonationFormModal';
 import { DonationDetailModal } from '../common/DonationDetailModal';
-import { getDonationsByDonorId } from '../../services/localStorage';
+import { getDonationsByDonorId, subscribeToDonationsByDonor } from '../../services/supabaseData';
 import {
   Plus,
   Utensils,
@@ -39,7 +39,7 @@ export const DonorDashboard: React.FC<DonorDashboardProps> = ({ openAuthModal })
   const [selectedDonation, setSelectedDonation] = useState<FoodDonation | null>(null);
   const [successNotice, setSuccessNotice] = useState<string | null>(null);
 
-  // Load donations from localStorage
+  // Load donations from Supabase with real-time subscription
   useEffect(() => {
     if (!user) {
       setDonations([]);
@@ -49,33 +49,23 @@ export const DonorDashboard: React.FC<DonorDashboardProps> = ({ openAuthModal })
 
     setLoading(true);
 
-    // Load donations from localStorage
-    const loadDonations = () => {
-      const donorDonations = getDonationsByDonorId(user.id);
+    // Load donations from Supabase
+    const loadDonations = async () => {
+      const donorDonations = await getDonationsByDonorId(user.id);
       setDonations(donorDonations);
       setLoading(false);
     };
 
     loadDonations();
 
-    // Listen for custom storage events for real-time updates
-    const handleStorageChange = (e: StorageEvent) => {
-      if (e.key === 'annasetu_donations') {
-        loadDonations();
-      }
-    };
-
-    // Also listen for custom events from within the same tab
-    const handleCustomEvent = () => {
-      loadDonations();
-    };
-
-    window.addEventListener('storage', handleStorageChange);
-    window.addEventListener('annasetu-donations-updated', handleCustomEvent);
+    // Subscribe to real-time updates
+    const unsubscribe = subscribeToDonationsByDonor(user.id, (updatedDonations) => {
+      setDonations(updatedDonations);
+      setLoading(false);
+    });
 
     return () => {
-      window.removeEventListener('storage', handleStorageChange);
-      window.removeEventListener('annasetu-donations-updated', handleCustomEvent);
+      unsubscribe();
     };
   }, [user]);
 

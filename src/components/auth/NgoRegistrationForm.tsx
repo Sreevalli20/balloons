@@ -125,7 +125,6 @@ export const NgoRegistrationForm: React.FC<NgoRegistrationFormProps> = ({
         ngoRegNumber: ngoRegNumber.trim(),
         ngoCapacityMeals,
         ngoDietaryTypes,
-        verificationNotes: `Registered on ${new Date().toLocaleDateString()}. Pending administrator certificate audit. Darpan ID: ${darpanId || 'N/A'}, 12A/80G: ${taxExemptionId || 'N/A'}.`,
       });
 
       // Redirect user to NGO dashboard to see the initial unverified state and verification timeline

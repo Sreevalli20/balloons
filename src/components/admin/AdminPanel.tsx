@@ -5,9 +5,9 @@ import { DonationDetailModal } from '../common/DonationDetailModal';
 import {
   getNgos,
   getDonors,
-  getDonations,
-  toggleNgoVerification,
-} from '../../services/localStorage';
+  getAllDonations,
+  updateUser,
+} from '../../services/supabaseData';
 import {
   ShieldCheck,
   Building,
@@ -42,41 +42,26 @@ export const AdminPanel: React.FC<AdminPanelProps> = ({ openAuthModal }) => {
   const [actionSuccess, setActionSuccess] = useState<string | null>(null);
   const [actionError, setActionError] = useState<string | null>(null);
 
-  // Load users and donations from localStorage
+  // Load users and donations from Supabase
   useEffect(() => {
     if (!user) {
       setLoading(false);
       return;
     }
 
-    const loadData = () => {
-      setNgos(getNgos());
-      setDonors(getDonors());
-      setAllDonations(getDonations());
+    const loadData = async () => {
+      const [ngosData, donorsData, donationsData] = await Promise.all([
+        getNgos(),
+        getDonors(),
+        getAllDonations(),
+      ]);
+      setNgos(ngosData);
+      setDonors(donorsData);
+      setAllDonations(donationsData);
       setLoading(false);
     };
 
     loadData();
-
-    const handleStorageChange = (e: StorageEvent) => {
-      if (e.key === 'annasetu_users' || e.key === 'annasetu_donations') {
-        loadData();
-      }
-    };
-
-    const handleCustomEvent = () => {
-      loadData();
-    };
-
-    window.addEventListener('storage', handleStorageChange);
-    window.addEventListener('annasetu-users-updated', handleCustomEvent);
-    window.addEventListener('annasetu-donations-updated', handleCustomEvent);
-
-    return () => {
-      window.removeEventListener('storage', handleStorageChange);
-      window.removeEventListener('annasetu-users-updated', handleCustomEvent);
-      window.removeEventListener('annasetu-donations-updated', handleCustomEvent);
-    };
   }, [user]);
 
   const handleToggleVerification = async (ngo: UserProfile, makeVerified: boolean) => {
@@ -85,10 +70,18 @@ export const AdminPanel: React.FC<AdminPanelProps> = ({ openAuthModal }) => {
     setActionSuccess(null);
 
     try {
-      toggleNgoVerification(ngo.uid, makeVerified);
-      window.dispatchEvent(new CustomEvent('annasetu-users-updated'));
+      await updateUser(ngo.uid, { isVerified: makeVerified });
+      // Reload data
+      const [ngosData, donorsData, donationsData] = await Promise.all([
+        getNgos(),
+        getDonors(),
+        getAllDonations(),
+      ]);
+      setNgos(ngosData);
+      setDonors(donorsData);
+      setAllDonations(donationsData);
       setActionSuccess(
-        `Successfully ${makeVerified ? 'verified' : 'revoked verification for'} ${ngo.organization_name}.`
+        `Successfully ${makeVerified ? 'verified' : 'revoked verification for'} ${ngo.organizationName}.`
       );
     } catch (err: unknown) {
       console.error(err);
@@ -102,9 +95,9 @@ export const AdminPanel: React.FC<AdminPanelProps> = ({ openAuthModal }) => {
     if (searchQuery) {
       const q = searchQuery.toLowerCase();
       return (
-        (n.organization_name?.toLowerCase() || '').includes(q) ||
+        (n.organizationName?.toLowerCase() || '').includes(q) ||
         n.email.toLowerCase().includes(q) ||
-        (n.ngo_reg_number && n.ngo_reg_number.toLowerCase().includes(q))
+        (n.ngoRegNumber && n.ngoRegNumber.toLowerCase().includes(q))
       );
     }
     return true;
@@ -115,9 +108,9 @@ export const AdminPanel: React.FC<AdminPanelProps> = ({ openAuthModal }) => {
     if (searchQuery) {
       const q = searchQuery.toLowerCase();
       return (
-        (d.food_name?.toLowerCase() || '').includes(q) ||
-        (d.donor_name?.toLowerCase() || '').includes(q) ||
-        (d.assigned_ngo_name && d.assigned_ngo_name.toLowerCase().includes(q))
+        (d.foodName?.toLowerCase() || '').includes(q) ||
+        (d.donorName?.toLowerCase() || '').includes(q) ||
+        (d.assignedNgoName && d.assignedNgoName.toLowerCase().includes(q))
       );
     }
     return true;
@@ -318,7 +311,7 @@ export const AdminPanel: React.FC<AdminPanelProps> = ({ openAuthModal }) => {
                         <tr key={ngo.uid} className="hover:bg-gray-50/50 transition-colors">
                           <td className="py-3.5 px-4">
                             <div className="font-bold text-gray-900">
-                              {ngo.organization_name}
+                              {ngo.organizationName}
                             </div>
                             <div className="text-[11px] text-gray-500">{ngo.email}</div>
                             {ngo.phone && (
@@ -326,14 +319,14 @@ export const AdminPanel: React.FC<AdminPanelProps> = ({ openAuthModal }) => {
                             )}
                           </td>
                           <td className="py-3.5 px-4 font-mono text-[11px] text-gray-700">
-                            {ngo.ngo_reg_number || 'Self-Attested'}
+                            {ngo.ngoRegNumber || 'Self-Attested'}
                           </td>
                           <td className="py-3.5 px-4 font-semibold text-gray-800">
-                            {ngo.ngo_capacity_meals || 100} meals/day
+                            {ngo.ngoCapacityMeals || 100} meals/day
                           </td>
                           <td className="py-3.5 px-4">
                             <div className="flex flex-wrap gap-1">
-                              {ngo.ngo_dietary_types?.map((t) => (
+                              {ngo.ngoDietaryTypes?.map((t) => (
                                 <span
                                   key={t}
                                   className="bg-gray-100 text-gray-700 text-[10px] px-1.5 py-0.5 rounded capitalize"
@@ -439,14 +432,14 @@ export const AdminPanel: React.FC<AdminPanelProps> = ({ openAuthModal }) => {
                         AS-{d.id.slice(-6).toUpperCase()}
                       </td>
                       <td className="py-3 px-4 font-semibold text-gray-900">
-                        {d.food_name}
+                        {d.foodName}
                       </td>
                       <td className="py-3 px-4 text-gray-700">
                         {d.quantity} {d.unit} (~{d.estimated_servings} servings)
                       </td>
-                      <td className="py-3 px-4 text-gray-800">{d.donor_name}</td>
+                      <td className="py-3 px-4 text-gray-800">{d.donorName}</td>
                       <td className="py-3 px-4 text-gray-800">
-                        {d.assigned_ngo_name || '—'}
+                        {d.assignedNgoName || '—'}
                       </td>
                       <td className="py-3 px-4">
                         <span

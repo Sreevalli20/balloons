@@ -8,7 +8,7 @@ import {
   DonationStatus,
 } from '../../types';
 import { CITY_PRESETS, getCurrentBrowserLocation } from '../../utils/geo';
-import { createDonation } from '../../services/localStorage';
+import { createDonation } from '../../services/supabaseData';
 import {
   Utensils,
   Clock,
