@@ -1,5 +1,4 @@
 {
-  "name": "annasetu-ai",
   "rewrites": [
     {
       "source": "/(.*)",
